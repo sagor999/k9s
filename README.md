@@ -1,4 +1,4 @@
-<img src="assets/k9s.png">
+<img src="assets/k9s.png" alt="k9s">
 
 # K9s - Kubernetes CLI To Manage Your Clusters In Style!
 
@@ -39,10 +39,10 @@ K9s is available on Linux, macOS and Windows platforms.
 
 * Binaries for Linux, Windows and Mac are available as tarballs in the [release](https://github.com/derailed/k9s/releases) page.
 
-* Via Homebrew or LinuxBrew for macOS and Linux
+* Via Homebrew for macOS or LinuxBrew for Linux
 
    ```shell
-   brew install derailed/k9s/k9s
+   brew install k9s
    ```
 
 * Via [MacPorts](https://www.macports.org)
@@ -57,43 +57,82 @@ K9s is available on Linux, macOS and Windows platforms.
   pacman -S k9s
   ```
 
+* On OpenSUSE Linux distribution
+
+  ```shell
+  zypper install k9s
+  ```
+
 * Via [Scoop](https://scoop.sh) for Windows
 
   ```shell
   scoop install k9s
   ```
 
-* Building from source
-   K9s was built using go 1.13 or above. In order to build K9 from source you must:
-   1. Clone the repo
-   2. Add the following command in your go.mod file
+* Via [Chocolatey](https://chocolatey.org/packages/k9s) for Windows
 
-      ```text
-      replace (
-        github.com/derailed/k9s => MY_K9S_CLONED_GIT_REPO
-      )
+  ```shell
+  choco install k9s
+  ```
+
+* Via a GO install
+
+  ```shell
+  # NOTE: The dev version will be in effect!
+  go get -u github.com/derailed/k9s
+  ```
+
+---
+
+## Building From Source
+
+ K9s is currently using go v1.14 or above. In order to build K9 from source you must:
+
+ 1. Clone the repo
+ 2. Build and run the executable
+
+      ```shell
+      make build && ./execs/k9s
       ```
 
-   3. Build and run the executable
-
-        ```shell
-        go run main.go
-        ```
-
---- 
+---
 
 ## Running with Docker
- 
+
+### Running the official Docker image
+
   You can run k9s as a Docker container by mounting your `KUBECONFIG`:
- 
+
   ```shell
-  docker run --rm -it -v $KUBECONFIG:/root/.kube/config derailed/k9s
+  docker run --rm -it -v $KUBECONFIG:/root/.kube/config quay.io/derailed/k9s
   ```
- 
+
   For default path it would be:
- 
+
   ```shell
-  docker run --rm -it -v ~/.kube/config:/root/.kube/config derailed/k9s
+  docker run --rm -it -v ~/.kube/config:/root/.kube/config quay.io/derailed/k9s
+  ```
+
+### Building your own Docker image
+
+  You can build your own Docker image of k9s from the [Dockerfile](Dockerfile) with the following:
+
+  ```shell
+  docker build -t k9s-docker:0.1 .
+  ```
+
+  You can get the latest stable `kubectl` version and pass it to the `docker build` command with the `--build-arg` option.
+  You can use the `--build-arg` option to pass any valid `kubectl` version (like `v1.18.0` or `v1.19.1`).
+
+  ```shell
+  KUBECTL_VERSION=$(make kubectl-stable-version 2>/dev/null)
+  docker build --build-arg KUBECTL_VERSION=${KUBECTL_VERSION} -t k9s-docker:0.1 .
+  ```
+
+  Run your container:
+
+  ```shell
+  docker run --rm -it -v ~/.kube/config:/root/.kube/config k9s-docker:0.1
   ```
 
 ---
@@ -109,7 +148,10 @@ K9s is available on Linux, macOS and Windows platforms.
 * In order to issue manifest edit commands make sure your EDITOR env is set.
 
     ```shell
-       export EDITOR=my_fav_editor_here!
+    # Kubectl edit command will use this env var.
+    export EDITOR=my_fav_editor
+    # Should your editor deals with streamed vs on disk files differently, also set...
+    export K9S_EDITOR=my_fav_editor
     ```
 
 ---
@@ -158,26 +200,26 @@ k9s -l debug
 
 K9s uses aliases to navigate most K8s resources.
 
-| Action                                                        | Command               | Comment                                                     |
-|---------------------------------------------------------------|-----------------------|-------------------------------------------------------------|
-| Show active keyboard mnemonics and help                       | `?`                   |                                                             |
-| Show all available resource alias                             | `ctrl-a`              |                                                             |
-| To bail out of K9s                                            | `:q`, `ctrl-c`        |                                                             |
-| View a Kubernetes resource using singular/plural or shortname | `:`po⏎                | accepts singular, plural, shortname or alias ie pod or pods |
-| View a Kubernetes resource in a given namespace               | `:`alias namespace⏎   |                                                             |
-| Filter out a resource view given a filter                     | `/`filter⏎            |                                                             |
-| Filter resource view by labels                                | `/`-l label-selector⏎ |                                                             |
-| Fuzzy find a resource given a filter                          | `/`-f filter⏎         |                                                             |
-| Bails out of view/command/filter mode                         | `<esc>`               |                                                             |
-| Key mapping to describe, view, edit, view logs,...            | `d`,`v`, `e`, `l`,... |                                                             |
-| To view and switch to another Kubernetes context              | `:`ctx⏎               |                                                             |
-| To view and switch to another Kubernetes context              | `:`ctx context-name⏎  |                                                             |
-| To view and switch to another Kubernetes namespace            | `:`ns⏎                |                                                             |
-| To view all saved resources                                   | `:`screendump or sd⏎  |                                                             |
-| To delete a resource (TAB and ENTER to confirm)               | `ctrl-d`              |                                                             |
-| To kill a resource (no confirmation dialog!)                  | `ctrl-k`              |                                                             |
-| Launch pulses view                                            | `:`pulses or pu⏎      |                                                             |
-| Launch XRay view                                              | `:`xray RESOURCE [NAMESPACE]⏎ | RESOURCE can be one of po, svc, dp, rs, sts, ds, NAMESPACE is optional |
+| Action                                                         | Command                       | Comment                                                                |
+|----------------------------------------------------------------|-------------------------------|------------------------------------------------------------------------|
+| Show active keyboard mnemonics and help                        | `?`                           |                                                                        |
+| Show all available resource alias                              | `ctrl-a`                      |                                                                        |
+| To bail out of K9s                                             | `:q`, `ctrl-c`                |                                                                        |
+| View a Kubernetes resource using singular/plural or short-name | `:`po⏎                        | accepts singular, plural, short-name or alias ie pod or pods           |
+| View a Kubernetes resource in a given namespace                | `:`alias namespace⏎           |                                                                        |
+| Filter out a resource view given a filter                      | `/`filter⏎                    | Regex2 supported ie `fred|blee` to filter resources named fred or blee |
+| Filter resource view by labels                                 | `/`-l label-selector⏎         |                                                                        |
+| Fuzzy find a resource given a filter                           | `/`-f filter⏎                 |                                                                        |
+| Bails out of view/command/filter mode                          | `<esc>`                       |                                                                        |
+| Key mapping to describe, view, edit, view logs,...             | `d`,`v`, `e`, `l`,...         |                                                                        |
+| To view and switch to another Kubernetes context               | `:`ctx⏎                       |                                                                        |
+| To view and switch to another Kubernetes context               | `:`ctx context-name⏎          |                                                                        |
+| To view and switch to another Kubernetes namespace             | `:`ns⏎                        |                                                                        |
+| To view all saved resources                                    | `:`screendump or sd⏎          |                                                                        |
+| To delete a resource (TAB and ENTER to confirm)                | `ctrl-d`                      |                                                                        |
+| To kill a resource (no confirmation dialog!)                   | `ctrl-k`                      |                                                                        |
+| Launch pulses view                                             | `:`pulses or pu⏎              |                                                                        |
+| Launch XRay view                                               | `:`xray RESOURCE [NAMESPACE]⏎ | RESOURCE can be one of po, svc, dp, rs, sts, ds, NAMESPACE is optional |
 
 ---
 
@@ -192,32 +234,12 @@ K9s uses aliases to navigate most K8s resources.
 
 ---
 
-## Headers description
-
-### Pods view
-
-| Header      | Description                   |
-|-------------|-------------------------------|
-| NAME        | Pod name                      |
-| IMAGE       | Image used                    |
-| READY       | Is pod ready ?                |
-| STATE       | Pod state                     |
-| INIT        | Is an init pod ?              |
-| RS          | Restart count                 |
-| PROBES(L:R) | Liveness and Readiness probes |
-| CPU         | CPU used (millicores)         |
-| MEM         | Memory used (Mb)              |
-| %CPU/R      | % ratio of CPU used/requested |
-| %MEM/R      | % ratio of MEM used/requested |
-| %CPU/L      | % ratio of CPU used/limit     |
-| %MEM/L      | % ratio of MEM used/limit     |
-| PORTS       | Ports exposed                 |
-| AGE         | Pod age                       |
-
 ---
 
 ## Demo Videos/Recordings
 
+* [K9s v0.21.3](https://youtu.be/wG8KCwDAhnw)
+* [K9s v0.19.X](https://youtu.be/kj-WverKZ24)
 * [K9s v0.18.0](https://www.youtube.com/watch?v=zMnD5e53yRw)
 * [K9s v0.17.0](https://www.youtube.com/watch?v=7S33CNLAofk&feature=youtu.be)
 * [K9s Pulses](https://asciinema.org/a/UbXKPal6IWpTaVAjBBFmizcGN)
@@ -236,27 +258,39 @@ K9s uses aliases to navigate most K8s resources.
   > NOTE: This is still in flux and will change while in pre-release stage!
 
   ```yaml
-  # config.yml
+  # $HOME/.k9s/config.yml
   k9s:
-    # Represents ui poll intervals.
+    # Represents ui poll intervals. Default 2secs
     refreshRate: 2
+    # Enable mouse support. Default false
+    enableMouse: false
+    # Set to true to hide K9s header. Default false
+    headless: false
     # Indicates whether modification commands like delete/kill/edit are disabled. Default is false
     readOnly: false
+    # Toggles icons display as not all terminal support these chars.
+    noIcons: false
     # Logs configuration
     logger:
       # Defines the number of lines to return. Default 100
       tail: 200
       # Defines the total number of log lines to allow in the view. Default 1000
       buffer: 500
-      # Represents how far to go back in the log timeline in seconds. Default is 5min
-      sinceSeconds: 300
+      # Represents how far to go back in the log timeline in seconds. Default is 1min
+      sinceSeconds: 60
+      # Go full screen while displaying logs. Default false
+      fullScreenLogs: false
+      # Toggles log line wrap. Default false
+      textWrap: false
+      # Toggles log line timestamp info. Default false
+      showTime: false
     # Indicates the current kube context. Defaults to current context
     currentContext: minikube
     # Indicates the current kube cluster. Defaults to current context cluster
     currentCluster: minikube
     # Persists per cluster preferences for favorite namespaces and view.
     clusters:
-      cooln:
+      coolio:
         namespace:
           active: coolio
           favorites:
@@ -264,7 +298,22 @@ K9s uses aliases to navigate most K8s resources.
           - default
         view:
           active: po
-      minikube:
+        featureGates:
+          # Toggles NodeShell support. Allow K9s to shell into nodes if needed. Default false.
+          nodeShell: false
+        # Provide shell pod customization of feature gate is enabled
+        shellPod:
+          # The shell pod image to use.
+          image: killerAdmin
+          # The namespace to launch to shell pod into.
+          namespace: fred
+          # The resource limit to set on the shell pod.
+          limits:
+            cpu: 100m
+            memory: 100Mi
+        # The IP Address to use when launching a port-forward.
+        portForwardAddress: 1.2.3.4
+      kind:
         namespace:
           active: all
           favorites:
@@ -274,6 +323,30 @@ K9s uses aliases to navigate most K8s resources.
         view:
           active: dp
   ```
+
+---
+
+## Node Shell
+
+By enabling the nodeShell feature gate on a given cluster, K9s allows you to shell into your cluster nodes. Once enabled, you will have a new `s` for `shell` menu option while in node view. K9s will launch a pod on the selected node using a special k9s_shell pod. Furthermore, you can refine your shell pod by using a custom docker image preloaded with the shell tools you love. By default k9s uses a BusyBox image, but you can configure it as follows:
+
+```yaml
+# $HOME/.k9s/config.yml
+k9s:
+  clusters:
+    # Configures node shell on cluster blee
+    blee:
+      featureGates:
+        # You must enable the nodeShell feature gate to enable shelling into nodes
+        nodeShell: true
+      # You can also further tune the shell pod specification
+      shellPod:
+        image: cool_kid_admin:42
+        namespace: blee
+        limits:
+          cpu: 100m
+          memory: 100Mi
+```
 
 ---
 
@@ -288,7 +361,7 @@ alias:
   crb: rbac.authorization.k8s.io/v1/clusterrolebindings
 ```
 
-Using this alias file, you can now type pp/crb to list pods or clusterrolebindings respectively.
+Using this alias file, you can now type pp/crb to list pods or ClusterRoleBindings respectively.
 
 ---
 
@@ -321,9 +394,43 @@ Entering the command mode and typing a resource name or alias, could be cumberso
 
  Not feeling so hot? Your custom hotkeys will be listed in the help view `?`. Also your hotkey file will be automatically reloaded so you can readily use your hotkeys as you define them.
 
- You can choose any keyboard shotcuts that make sense to you, provided they are not part of the standard K9s shortcuts list.
+ You can choose any keyboard shortcuts that make sense to you, provided they are not part of the standard K9s shortcuts list.
 
 > NOTE: This feature/configuration might change in future releases!
+
+---
+
+## Resource Custom Columns
+
+[SneakCast v0.17.0 on The Beach! - Yup! sound is sucking but what a setting!](https://youtu.be/7S33CNLAofk)
+
+You can change which columns shows up for a given resource via custom views. To surface this feature, you will need to create a new configuration file, namely `$HOME/.k9s/views.yml`. This file leverages GVR (Group/Version/Resource) to configure the associated table view columns. If no GVR is found for a view the default rendering will take over (ie what we have now). Going wide will add all the remaining columns that are available on the given resource after your custom columns. To boot, you can edit your views config file and tune your resources views live!
+
+> NOTE: This is experimental and will most likely change as we iron this out!
+
+Here is a sample views configuration that customize a pods and services views.
+
+```yaml
+# $HOME/.k9s/views.yml
+k9s:
+  views:
+    v1/pods:
+      columns:
+        - AGE
+        - NAMESPACE
+        - NAME
+        - IP
+        - NODE
+        - STATUS
+        - READY
+    v1/services:
+      columns:
+        - AGE
+        - NAMESPACE
+        - NAME
+        - TYPE
+        - CLUSTER-IP
+```
 
 ---
 
@@ -334,8 +441,8 @@ K9s allows you to extend your command line and tooling by defining your very own
 * Shortcut option represents the key combination a user would type to activate the plugin
 * Confirm option (when enabled) lets you see the command that is going to be executed and gives you an option to confirm or prevent execution
 * Description will be printed next to the shortcut in the k9s menu
-* Scopes defines a collection of resources names/shortnames for the views associated with the plugin. You can specify `all` to provide this shortcut for all views.
-* Command represents adhoc commands the plugin runs upon activation
+* Scopes defines a collection of resources names/short-names for the views associated with the plugin. You can specify `all` to provide this shortcut for all views.
+* Command represents ad-hoc commands the plugin runs upon activation
 * Background specifies whether or not the command runs in the background
 * Args specifies the various arguments that should apply to the command above
 
@@ -355,12 +462,12 @@ K9s does provide additional environment variables for you to customize your plug
 
 ### Example
 
-This defines a plugin for viewing logs on a selected pod using `ctrl-l` for shorcut.
+This defines a plugin for viewing logs on a selected pod using `ctrl-l` for shortcut.
 
 ```yaml
 # $HOME/.k9s/plugin.yml
 plugin:
-  # Defines a plugin to provide a `ctrl-l` shorcut to tail the logs while in pod view.
+  # Defines a plugin to provide a `ctrl-l` shortcut to tail the logs while in pod view.
   fred:
     shortCut: Ctrl-L
     confirm: false
@@ -396,12 +503,12 @@ Initially, the benchmarks will run with the following defaults:
 * HTTP Verb: GET
 * Path: /
 
-The PortForward view is backed by a new K9s config file namely: `$HOME/.k9s/bench-mycluster.yml`. Each cluster you connect to will have its own bench config file. Changes to this file should automatically update the PortForward view to indicate how you want to run your benchmarks.
+The PortForward view is backed by a new K9s config file namely: `$HOME/.k9s/bench-<k8s_context>.yml` (note: extension is `yml` and not `yaml`). Each cluster you connect to will have its own bench config file, containing the name of the K8s context for the cluster. Changes to this file should automatically update the PortForward view to indicate how you want to run your benchmarks.
 
 Here is a sample benchmarks.yml configuration. Please keep in mind this file will likely change in subsequent releases!
 
 ```yaml
-# This file resides in $HOME/.k9s/bench-mycluster.yml
+# This file resides in $HOME/.k9s/bench-mycontext.yml
 benchmarks:
   # Indicates the default concurrency and number of requests setting if a container or service rule does not match.
   defaults:
@@ -427,7 +534,7 @@ benchmarks:
           Content-Type:
             - application/json
   services:
-    # Similary you can Benchmark an HTTP service exposed either via nodeport, loadbalancer types.
+    # Similarly you can Benchmark an HTTP service exposed either via NodePort, LoadBalancer types.
     # Service ID is ns/svc-name
     default/nginx:
       # Set the concurrency level
@@ -436,8 +543,8 @@ benchmarks:
       requests: 500
       http:
         method: GET
-        # This setting will depend on whether service is nodeport or loadbalancer. Nodeport may require vendor port tuneling setting.
-        # Set this to a node if nodeport or LB if applicable. IP or dns name.
+        # This setting will depend on whether service is NodePort or LoadBalancer. NodePort may require vendor port tunneling setting.
+        # Set this to a node if NodePort or LB if applicable. IP or dns name.
         host: A.B.C.D
         path: /bumblebeetuna
       auth:
@@ -547,7 +654,7 @@ roleRef:
 
 Example: Dracula Skin ;)
 
-<img src="assets/skins/dracula.png">
+<img src="assets/skins/dracula.png" alt="Dracula Skin">
 
 You can style K9s based on your own sense of look and style. Skins are YAML files, that enable a user to change the K9s presentation layer. K9s skins are loaded from `$HOME/.k9s/skin.yml`. If a skin file is detected then the skin would be loaded if not the current stock skin remains in effect.
 
@@ -557,6 +664,10 @@ Below is a sample skin file, more skins are available in the skins directory in 
 Colors can be defined by name or uing an hex representation. Of recent, we've added a color named `default` to indicate a transparent background color to preserve your terminal background color settings if so desired.
 
 > NOTE: This is very much an experimental feature at this time, more will be added/modified if this feature has legs so thread accordingly!
+
+
+> NOTE: Please see [K9s Skins](https://k9scli.io/topics/skins/) for a list of available colors.
+
 
 ```yaml
 # Skin InTheNavy...
@@ -624,41 +735,6 @@ k9s:
       bgColor: black
 ```
 
-Here is a list of all available color names.
-
-| Color Names          |                |                  |                   |                 |
-|----------------------|----------------|------------------|-------------------|-----------------|
-| black                | maroon         | green            | olive             | navy            |
-| purple               | teal           | silver           | gray              | red             |
-| lime                 | yellow         | blue             | fuchsia           | aqua            |
-| white                | aliceblue      | antiquewhite     | aquamarine        | azure           |
-| beige                | bisque         | blanchedalmond   | blueviolet        | brown           |
-| burlywood            | cadetblue      | chartreuse       | chocolate         | coral           |
-| cornflowerblue       | cornsilk       | crimson          | darkblue          | darkcyan        |
-| darkgoldenrod        | darkgray       | darkgreen        | darkkhaki         | darkmagenta     |
-| darkolivegreen       | darkorange     | darkorchid       | darkred           | darksalmon      |
-| darkseagreen         | darkslateblue  | darkslategray    | darkturquoise     | darkviolet      |
-| deeppink             | deepskyblue    | dimgray          | dodgerblue        | firebrick       |
-| floralwhite          | forestgreen    | gainsboro        | ghostwhite        | gold            |
-| goldenrod            | greenyellow    | honeydew         | hotpink           | indianred       |
-| indigo               | ivory          | khaki            | lavender          | lavenderblush   |
-| lawngreen            | lemonchiffon   | lightblue        | lightcoral        | lightcyan       |
-| lightgoldenrodyellow | lightgray      | lightgreen       | lightpink         | lightsalmon     |
-| lightseagreen        | lightskyblue   | lightslategray   | lightsteelblue    | lightyellow     |
-| limegreen            | linen          | mediumaquamarine | mediumblue        | mediumorchid    |
-| mediumpurple         | mediumseagreen | mediumslateblue  | mediumspringgreen | mediumturquoise |
-| mediumvioletred      | midnightblue   | mintcream        | mistyrose         | moccasin        |
-| navajowhite          | oldlace        | olivedrab        | orange            | orangered       |
-| orchid               | palegoldenrod  | palegreen        | paleturquoise     | palevioletred   |
-| papayawhip           | peachpuff      | peru             | pink              | plum            |
-| powderblue           | rebeccapurple  | rosybrown        | royalblue         | saddlebrown     |
-| salmon               | sandybrown     | seagreen         | seashell          | sienna          |
-| skyblue              | slateblue      | slategray        | snow              | springgreen     |
-| steelblue            | tan            | thistle          | tomato            | turquoise       |
-| violet               | wheat          | whitesmoke       | yellowgreen       | grey            |
-| dimgrey              | darkgrey       | darkslategrey    | lightgrey         | lightslategrey  |
-| slategrey            |                |                  |                   |                 |
-
 ---
 
 ## Known Issues
@@ -684,9 +760,9 @@ to make this project a reality!
 ## Meet The Core Team!
 
 * [Fernand Galiana](https://github.com/derailed)
-  * <img src="assets/mail.png" width="16" height="auto"/>  fernand@imhotep.io
-  * <img src="assets/twitter.png" width="16" height="auto"/> [@kitesurfer](https://twitter.com/kitesurfer?lang=en)
+  * <img src="assets/mail.png" width="16" height="auto" alt="email"/>  fernand@imhotep.io
+  * <img src="assets/twitter.png" width="16" height="auto" alt="twitter"/> [@kitesurfer](https://twitter.com/kitesurfer?lang=en)
 We always enjoy hearing from folks who benefit from our work.
 ---
 
-<img src="assets/imhotep_logo.png" width="32" height="auto"/> &nbsp;© 2020 Imhotep Software LLC. All materials licensed under [Apache v2.0](http://www.apache.org/licenses/LICENSE-2.0)
+<img src="assets/imhotep_logo.png" width="32" height="auto" alt="Imhotep"/> &nbsp;© 2020 Imhotep Software LLC. All materials licensed under [Apache v2.0](http://www.apache.org/licenses/LICENSE-2.0)

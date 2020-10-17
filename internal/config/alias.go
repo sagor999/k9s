@@ -10,7 +10,7 @@ import (
 )
 
 // K9sAlias manages K9s aliases.
-var K9sAlias = filepath.Join(K9sHome, "alias.yml")
+var K9sAlias = filepath.Join(K9sHome(), "alias.yml")
 
 // Alias tracks shortname to GVR mappings.
 type Alias map[string]string
@@ -144,11 +144,12 @@ func (a *Aliases) loadDefaultAliases() {
 	a.declare("aliases", "alias", "a")
 	a.declare("popeye", "pop")
 	a.declare("helm", "charts", "chart", "hm")
+	a.declare("dir", "d")
 	a.declare("contexts", "context", "ctx")
 	a.declare("users", "user", "usr")
 	a.declare("groups", "group", "grp")
 	a.declare("portforwards", "portforward", "pf")
-	a.declare("benchmarks", "benchmark", "be")
+	a.declare("benchmarks", "bench", "benchmark", "be")
 	a.declare("screendumps", "screendump", "sd")
 	a.declare("pulses", "pulse", "pu", "hz")
 	a.declare("xrays", "xray", "x")

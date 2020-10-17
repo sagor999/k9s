@@ -98,10 +98,11 @@ func (t *Table) StylesChanged(s *config.Styles) {
 	t.SetBorderColor(s.Table().FgColor.Color())
 	t.SetBorderFocusColor(s.Frame().Border.FocusColor.Color())
 	t.SetSelectedStyle(
-		tcell.ColorBlack,
-		t.styles.Table().CursorColor.Color(),
+		t.styles.Table().CursorFgColor.Color(),
+		t.styles.Table().CursorBgColor.Color(),
 		tcell.AttrBold,
 	)
+	t.fgColor = s.Table().CursorFgColor.Color()
 	t.Refresh()
 }
 
@@ -382,7 +383,7 @@ func (t *Table) filtered(data render.TableData) render.TableData {
 	filtered, err := rxFilter(t.cmdBuff.GetText(), filtered)
 	if err != nil {
 		log.Error().Err(errors.New("Invalid filter expression")).Msg("Regexp")
-		t.cmdBuff.ClearText()
+		t.cmdBuff.ClearText(true)
 	}
 
 	return filtered

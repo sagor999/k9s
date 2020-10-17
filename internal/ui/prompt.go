@@ -14,10 +14,10 @@ const (
 	defaultSpacer = 4
 )
 
-var _ PromptModel = (*model.CmdBuff)(nil)
-var _ Suggester = (*model.CmdBuff)(nil)
-var _ PromptModel = (*model.FishBuff)(nil)
-var _ Suggester = (*model.FishBuff)(nil)
+var (
+	_ PromptModel = (*model.FishBuff)(nil)
+	_ Suggester   = (*model.FishBuff)(nil)
+)
 
 // Suggester provides suggestions.
 type Suggester interface {
@@ -43,7 +43,7 @@ type PromptModel interface {
 	GetText() string
 
 	// ClearText clears out model text.
-	ClearText()
+	ClearText(fire bool)
 
 	// Notify notifies all listener of current suggestions.
 	Notify()
@@ -135,28 +135,29 @@ func (p *Prompt) keyboard(evt *tcell.EventKey) *tcell.EventKey {
 	case tcell.KeyRune:
 		p.model.Add(evt.Rune())
 	case tcell.KeyEscape:
-		p.model.ClearText()
+		p.model.ClearText(true)
 		p.model.SetActive(false)
 	case tcell.KeyEnter, tcell.KeyCtrlE:
 		p.model.SetText(p.model.GetText())
 		p.model.SetActive(false)
 	case tcell.KeyCtrlW, tcell.KeyCtrlU:
-		p.model.ClearText()
-	case tcell.KeyDown:
-		if next, ok := m.NextSuggestion(); ok {
-			p.suggest(p.model.GetText(), next)
-		}
+		p.model.ClearText(true)
 	case tcell.KeyUp:
-		if prev, ok := m.PrevSuggestion(); ok {
-			p.suggest(p.model.GetText(), prev)
+		if s, ok := m.NextSuggestion(); ok {
+			p.suggest(p.model.GetText(), s)
+		}
+	case tcell.KeyDown:
+		if s, ok := m.PrevSuggestion(); ok {
+			p.suggest(p.model.GetText(), s)
 		}
 	case tcell.KeyTab, tcell.KeyRight, tcell.KeyCtrlF:
-		if curr, ok := m.CurrentSuggestion(); ok {
-			p.model.SetText(p.model.GetText() + curr)
+		if s, ok := m.CurrentSuggestion(); ok {
+			p.model.SetText(p.model.GetText() + s)
 			m.ClearSuggestions()
 		}
 	}
-	return evt
+
+	return nil
 }
 
 // StylesChanged notifies skin changed.

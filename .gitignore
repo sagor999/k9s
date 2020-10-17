@@ -1,4 +1,5 @@
 .vscode
+*.out
 .idea
 .envrc
 cov.out
@@ -18,3 +19,4 @@ pod1.go
 faas
 .settings/*
 demos
+/code

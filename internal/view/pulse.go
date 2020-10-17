@@ -112,7 +112,7 @@ func (p *Pulse) Init(ctx context.Context) error {
 func (p *Pulse) StylesChanged(s *config.Styles) {
 	p.SetBackgroundColor(s.Charts().BgColor.Color())
 	for _, c := range p.charts {
-		c.SetFocusColorNames(s.Table().BgColor.String(), s.Table().CursorColor.String())
+		c.SetFocusColorNames(s.Table().BgColor.String(), s.Table().CursorBgColor.String())
 		if c.IsDial() {
 			c.SetBackgroundColor(s.Charts().DialBgColor.Color())
 			c.SetSeriesColors(s.Charts().DefaultDialColors.Colors()...)
@@ -124,7 +124,6 @@ func (p *Pulse) StylesChanged(s *config.Styles) {
 			c.SetSeriesColors(ss.Colors()...)
 		}
 	}
-	p.app.Draw()
 }
 
 const (
@@ -242,9 +241,7 @@ func (p *Pulse) Stop() {
 }
 
 // Refresh updates the view
-func (p *Pulse) Refresh() {
-	// p.update(p.model.Peek())
-}
+func (p *Pulse) Refresh() {}
 
 // GVR returns a resource descriptor.
 func (p *Pulse) GVR() client.GVR {
@@ -306,8 +303,11 @@ func (p *Pulse) enterCmd(evt *tcell.EventKey) *tcell.EventKey {
 	if !ok {
 		return nil
 	}
-	gvr := client.NewGVR(s.ID())
-	if err := p.App().gotoResource(gvr.R()+" all", "", false); err != nil {
+	res := client.NewGVR(s.ID()).R()
+	if res == "cpu" || res == "mem" {
+		res = "pod"
+	}
+	if err := p.App().gotoResource(res+" all", "", false); err != nil {
 		p.App().Flash().Err(err)
 	}
 

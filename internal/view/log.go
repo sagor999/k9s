@@ -7,8 +7,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
+
+	"github.com/atotto/clipboard"
 
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/color"
@@ -26,8 +29,11 @@ const (
 	logMessage   = "Waiting for logs..."
 	logFmt       = " Logs([hilite:bg:]%s[-:bg:-])[[green:bg:b]%s[-:bg:-]] "
 	logCoFmt     = " Logs([hilite:bg:]%s:[hilite:bg:b]%s[-:bg:-])[[green:bg:b]%s[-:bg:-]] "
-	flushTimeout = 100 * time.Millisecond
+	flushTimeout = 1 * time.Millisecond
 )
+
+// InvalidCharsRX contains invalid filename characters.
+var invalidPathCharsRX = regexp.MustCompile(`[:/\\]+`)
 
 // Log represents a generic log viewer.
 type Log struct {
@@ -110,7 +116,9 @@ func (l *Log) LogFailed(err error) {
 		if l.logs.GetText(true) == logMessage {
 			l.logs.Clear()
 		}
-		fmt.Fprintln(l.ansiWriter, tview.Escape(color.Colorize(err.Error(), color.Red)))
+		if _, err = l.ansiWriter.Write([]byte(tview.Escape(color.Colorize(err.Error(), color.Red)))); err != nil {
+			log.Error().Err(err).Msgf("Writing log error")
+		}
 	})
 }
 
@@ -123,9 +131,7 @@ func (l *Log) LogChanged(lines dao.LogItems) {
 
 // BufferChanged indicates the buffer was changed.
 func (l *Log) BufferChanged(s string) {
-	if err := l.model.Filter(l.logs.cmdBuff.GetText()); err != nil {
-		l.app.Flash().Err(err)
-	}
+	l.model.Filter(l.logs.cmdBuff.GetText())
 	l.updateTitle()
 }
 
@@ -182,12 +188,14 @@ func (l *Log) bindKeys() {
 		ui.Key4:        ui.NewKeyAction("30m", l.sinceCmd(30*60), true),
 		ui.Key5:        ui.NewKeyAction("1h", l.sinceCmd(60*60), true),
 		tcell.KeyEnter: ui.NewSharedKeyAction("Filter", l.filterCmd, false),
-		ui.KeyC:        ui.NewKeyAction("Clear", l.clearCmd, true),
+		tcell.KeyCtrlK: ui.NewKeyAction("Clear", l.clearCmd, true),
+		ui.KeyM:        ui.NewKeyAction("Mark", l.markCmd, true),
 		ui.KeyS:        ui.NewKeyAction("Toggle AutoScroll", l.toggleAutoScrollCmd, true),
 		ui.KeyF:        ui.NewKeyAction("Toggle FullScreen", l.toggleFullScreenCmd, true),
 		ui.KeyT:        ui.NewKeyAction("Toggle Timestamp", l.toggleTimestampCmd, true),
 		ui.KeyW:        ui.NewKeyAction("Toggle Wrap", l.toggleTextWrapCmd, true),
 		tcell.KeyCtrlS: ui.NewKeyAction("Save", l.SaveCmd, true),
+		ui.KeyC:        ui.NewKeyAction("Copy", l.cpCmd, true),
 	})
 }
 
@@ -236,16 +244,20 @@ func (l *Log) Logs() *Details {
 	return l.logs
 }
 
+// EOL tracks end of lines.
+var EOL = []byte{'\n'}
+
 // Flush write logs to viewer.
 func (l *Log) Flush(lines dao.LogItems) {
-	defer func(t time.Time) {
-		log.Debug().Msgf("FLUSH %d--%v", len(lines), time.Since(t))
-	}(time.Now())
-
-	showTime := l.Indicator().showTime
+	if !l.indicator.AutoScroll() {
+		return
+	}
 	ll := make([][]byte, len(lines))
-	lines.Render(showTime, ll)
-	fmt.Fprintln(l.ansiWriter, string(bytes.Join(ll, []byte("\n"))))
+	lines.Render(l.Indicator().showTime, ll)
+	_, _ = l.ansiWriter.Write(EOL)
+	if _, err := l.ansiWriter.Write(bytes.Join(ll, EOL)); err != nil {
+		log.Error().Err(err).Msgf("write logs failed")
+	}
 	l.logs.ScrollToEnd()
 	l.indicator.Refresh()
 }
@@ -267,10 +279,9 @@ func (l *Log) filterCmd(evt *tcell.EventKey) *tcell.EventKey {
 	if !l.logs.cmdBuff.IsActive() {
 		return evt
 	}
+
 	l.logs.cmdBuff.SetActive(false)
-	if err := l.model.Filter(l.logs.cmdBuff.GetText()); err != nil {
-		l.app.Flash().Err(err)
-	}
+	l.model.Filter(l.logs.cmdBuff.GetText())
 	l.updateTitle()
 
 	return nil
@@ -286,18 +297,32 @@ func (l *Log) SaveCmd(evt *tcell.EventKey) *tcell.EventKey {
 	return nil
 }
 
+func (l *Log) cpCmd(evt *tcell.EventKey) *tcell.EventKey {
+	l.app.Flash().Info("Content copied to clipboard...")
+	if err := clipboard.WriteAll(l.logs.GetText(true)); err != nil {
+		l.app.Flash().Err(err)
+	}
+	return nil
+}
+
+func sanitizeFilename(name string) string {
+	processedString := invalidPathCharsRX.ReplaceAllString(name, "-")
+
+	return processedString
+}
+
 func ensureDir(dir string) error {
 	return os.MkdirAll(dir, 0744)
 }
 
 func saveData(cluster, name, data string) (string, error) {
-	dir := filepath.Join(config.K9sDumpDir, cluster)
+	dir := filepath.Join(config.K9sDumpDir, sanitizeFilename(cluster))
 	if err := ensureDir(dir); err != nil {
 		return "", err
 	}
 
 	now := time.Now().UnixNano()
-	fName := fmt.Sprintf("%s-%d.log", strings.Replace(name, "/", "-", -1), now)
+	fName := fmt.Sprintf("%s-%d.log", sanitizeFilename(name), now)
 
 	path := filepath.Join(dir, fName)
 	mod := os.O_CREATE | os.O_WRONLY
@@ -321,6 +346,12 @@ func saveData(cluster, name, data string) (string, error) {
 
 func (l *Log) clearCmd(*tcell.EventKey) *tcell.EventKey {
 	l.model.Clear()
+	return nil
+}
+
+func (l *Log) markCmd(*tcell.EventKey) *tcell.EventKey {
+	_, _, w, _ := l.GetRect()
+	fmt.Fprintf(l.ansiWriter, "\n[white::b]%s[::]", strings.Repeat("─", w-4))
 	return nil
 }
 

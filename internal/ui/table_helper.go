@@ -138,7 +138,7 @@ func filterToast(data render.TableData) render.TableData {
 }
 
 func rxFilter(q string, data render.TableData) (render.TableData, error) {
-	rx, err := regexp.Compile(`(?i)` + q)
+	rx, err := regexp.Compile(`(?i)(` + q + `)`)
 	if err != nil {
 		return data, err
 	}

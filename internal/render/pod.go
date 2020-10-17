@@ -30,6 +30,8 @@ func (p Pod) ColorerFunc() ColorerFunc {
 		}
 		status := strings.TrimSpace(re.Row.Fields[statusCol])
 		switch status {
+		case Pending:
+			c = PendingColor
 		case ContainerCreating, PodInitializing:
 			c = AddColor
 		case Initialized:
@@ -57,6 +59,7 @@ func (Pod) Header(ns string) Header {
 	return Header{
 		HeaderColumn{Name: "NAMESPACE"},
 		HeaderColumn{Name: "NAME"},
+		HeaderColumn{Name: "PF"},
 		HeaderColumn{Name: "READY"},
 		HeaderColumn{Name: "RESTARTS", Align: tview.AlignRight},
 		HeaderColumn{Name: "STATUS"},
@@ -95,6 +98,7 @@ func (p Pod) Render(o interface{}, ns string, r *Row) error {
 	r.Fields = Fields{
 		po.Namespace,
 		po.ObjectMeta.Name,
+		"●",
 		strconv.Itoa(cr) + "/" + strconv.Itoa(len(ss)),
 		strconv.Itoa(rc),
 		phase,
@@ -151,13 +155,17 @@ func (*Pod) gatherPodMX(pod *v1.Pod, mx *mv1beta1.PodMetrics) (c, p metric) {
 		return
 	}
 
+	coMetrix := make(map[string]v1.ResourceList)
+	for _, cm := range mx.Containers {
+		coMetrix[cm.Name] = cm.Usage
+	}
 	cpu, mem := currentRes(mx)
 	c = metric{
 		cpu: ToMillicore(cpu.MilliValue()),
 		mem: ToMi(client.ToMB(mem.Value())),
 	}
 
-	rc, rm := requestedRes(pod.Spec.Containers)
+	rc, rm := resourceRequests(pod.Spec.Containers)
 	lc, lm := resourceLimits(pod.Spec.Containers)
 	p = metric{
 		cpu:    client.ToPercentageStr(cpu.MilliValue(), rc.MilliValue()),
@@ -193,7 +201,9 @@ func resourceLimits(cc []v1.Container) (cpu, mem resource.Quantity) {
 	for _, co := range cc {
 		limit := co.Resources.Limits
 		if len(limit) == 0 {
-			continue
+			cpu.Reset()
+			mem.Reset()
+			break
 		}
 		if limit.Cpu() != nil {
 			cpu.Add(*limit.Cpu())
@@ -205,9 +215,14 @@ func resourceLimits(cc []v1.Container) (cpu, mem resource.Quantity) {
 	return
 }
 
-func requestedRes(cc []v1.Container) (cpu, mem resource.Quantity) {
+func resourceRequests(cc []v1.Container) (cpu, mem resource.Quantity) {
 	for _, co := range cc {
 		c, m := containerResources(co)
+		if c == nil || m == nil {
+			cpu.Reset()
+			mem.Reset()
+			break
+		}
 		if c != nil {
 			cpu.Add(*c)
 		}

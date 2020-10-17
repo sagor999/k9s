@@ -2,6 +2,7 @@ package watch
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -70,43 +71,63 @@ func (f *Factory) List(gvr, ns string, wait bool, labels labels.Selector) ([]run
 	if err != nil {
 		return nil, err
 	}
-	if wait {
-		f.waitForCacheSync(ns)
-	}
-	if client.IsClusterScoped(ns) {
-		return inf.Lister().List(labels)
-	}
-
 	if client.IsAllNamespace(ns) {
 		ns = client.AllNamespaces
+	}
+
+	var oo []runtime.Object
+	if client.IsClusterScoped(ns) {
+		oo, err = inf.Lister().List(labels)
+	} else {
+		oo, err = inf.Lister().ByNamespace(ns).List(labels)
+	}
+	if !wait || (wait && inf.Informer().HasSynced()) {
+		return oo, err
+	}
+
+	f.waitForCacheSync(ns)
+	if client.IsClusterScoped(ns) {
+		return inf.Lister().List(labels)
 	}
 	return inf.Lister().ByNamespace(ns).List(labels)
 }
 
+// HasSynced checks if given informer is up to date.
+func (f *Factory) HasSynced(gvr, ns string) (bool, error) {
+	inf, err := f.CanForResource(ns, gvr, client.MonitorAccess)
+	if err != nil {
+		return false, err
+	}
+
+	return inf.Informer().HasSynced(), nil
+}
+
 // Get retrieves a given resource.
-func (f *Factory) Get(gvr, path string, wait bool, sel labels.Selector) (runtime.Object, error) {
-	ns, n := namespaced(path)
+func (f *Factory) Get(gvr, fqn string, wait bool, sel labels.Selector) (runtime.Object, error) {
+	ns, n := namespaced(fqn)
 	inf, err := f.CanForResource(ns, gvr, []string{client.GetVerb})
 	if err != nil {
 		return nil, err
 	}
-
-	if wait {
-		f.waitForCacheSync(ns)
+	var o runtime.Object
+	if client.IsClusterScoped(ns) {
+		o, err = inf.Lister().Get(n)
+	} else {
+		o, err = inf.Lister().ByNamespace(ns).Get(n)
 	}
+	if !wait || (wait && inf.Informer().HasSynced()) {
+		return o, err
+	}
+
+	f.waitForCacheSync(ns)
 	if client.IsClusterScoped(ns) {
 		return inf.Lister().Get(n)
 	}
-
 	return inf.Lister().ByNamespace(ns).Get(n)
 }
 
 func (f *Factory) waitForCacheSync(ns string) {
 	if client.IsClusterWide(ns) {
-		ns = client.AllNamespaces
-	}
-
-	if f.isClusterWide() {
 		ns = client.AllNamespaces
 	}
 
@@ -147,17 +168,19 @@ func (f *Factory) FactoryFor(ns string) di.DynamicSharedInformerFactory {
 }
 
 // SetActiveNS sets the active namespace.
-func (f *Factory) SetActiveNS(ns string) {
-	if !f.isClusterWide() {
-		f.ensureFactory(ns)
+func (f *Factory) SetActiveNS(ns string) error {
+	if f.isClusterWide() {
+		return nil
 	}
+	_, err := f.ensureFactory(ns)
+	return err
 }
 
 func (f *Factory) isClusterWide() bool {
 	f.mx.RLock()
 	defer f.mx.RUnlock()
-
 	_, ok := f.factories[client.AllNamespaces]
+
 	return ok
 }
 
@@ -171,50 +194,61 @@ func (f *Factory) CanForResource(ns, gvr string, verbs []string) (informers.Gene
 		return nil, fmt.Errorf("%v access denied on resource %q:%q", verbs, ns, gvr)
 	}
 
-	return f.ForResource(ns, gvr), nil
+	return f.ForResource(ns, gvr)
 }
 
 // ForResource returns an informer for a given resource.
-func (f *Factory) ForResource(ns, gvr string) informers.GenericInformer {
-	fact := f.ensureFactory(ns)
+func (f *Factory) ForResource(ns, gvr string) (informers.GenericInformer, error) {
+	fact, err := f.ensureFactory(ns)
+	if err != nil {
+		return nil, err
+	}
 	inf := fact.ForResource(toGVR(gvr))
 	if inf == nil {
 		log.Error().Err(fmt.Errorf("MEOW! No informer for %q:%q", ns, gvr))
-		return inf
+		return inf, nil
 	}
 
 	f.mx.RLock()
 	defer f.mx.RUnlock()
 	fact.Start(f.stopChan)
 
-	return inf
+	return inf, nil
 }
 
-func (f *Factory) ensureFactory(ns string) di.DynamicSharedInformerFactory {
+func (f *Factory) ensureFactory(ns string) (di.DynamicSharedInformerFactory, error) {
 	if client.IsClusterWide(ns) {
 		ns = client.AllNamespaces
 	}
 	f.mx.Lock()
 	defer f.mx.Unlock()
 	if fac, ok := f.factories[ns]; ok {
-		return fac
+		return fac, nil
+	}
+
+	dial, err := f.client.DynDial()
+	if err != nil {
+		return nil, err
 	}
 	f.factories[ns] = di.NewFilteredDynamicSharedInformerFactory(
-		f.client.DynDialOrDie(),
+		dial,
 		defaultResync,
 		ns,
 		nil,
 	)
 
-	return f.factories[ns]
+	return f.factories[ns], nil
 }
 
 // AddForwarder registers a new portforward for a given container.
 func (f *Factory) AddForwarder(pf Forwarder) {
 	f.mx.Lock()
 	defer f.mx.Unlock()
-
 	f.forwarders[pf.Path()] = pf
+
+	for k, v := range f.forwarders {
+		log.Debug().Msgf("%q -- %#v", k, v)
+	}
 }
 
 // DeleteForwarder deletes portforward for a given container.
@@ -236,6 +270,21 @@ func (f *Factory) ForwarderFor(path string) (Forwarder, bool) {
 	f.mx.RLock()
 	defer f.mx.RUnlock()
 
+	for k := range f.forwarders {
+		log.Debug().Msgf("KEY %q::%q", k, path)
+	}
 	fwd, ok := f.forwarders[path]
 	return fwd, ok
+}
+
+// ValidatePortForwards check if pods are still around for portforwards.
+func (f *Factory) ValidatePortForwards() {
+	for k, fwd := range f.forwarders {
+		tokens := strings.Split(k, ":")
+		_, err := f.Get("v1/pods", tokens[0], false, labels.Everything())
+		if err != nil {
+			fwd.Stop()
+			delete(f.forwarders, k)
+		}
+	}
 }

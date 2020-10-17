@@ -74,6 +74,9 @@ func (c *ClusterInfo) infoCell(t string) *tview.TableCell {
 }
 
 func (c *ClusterInfo) setCell(row int, s string) int {
+	if s == "" {
+		s = render.NAValue
+	}
 	c.GetCell(row, 1).SetText(s)
 	return row + 1
 }
@@ -85,7 +88,7 @@ func (c *ClusterInfo) ClusterInfoUpdated(data model.ClusterMeta) {
 
 // ClusterInfoChanged notifies the cluster meta was changed.
 func (c *ClusterInfo) ClusterInfoChanged(prev, curr model.ClusterMeta) {
-	c.app.QueueUpdate(func() {
+	c.app.QueueUpdateDraw(func() {
 		c.Clear()
 		c.layout()
 		row := c.setCell(0, curr.Context)

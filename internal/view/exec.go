@@ -1,6 +1,7 @@
 package view
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -123,6 +124,49 @@ func execute(opts shellOpts) error {
 	}
 }
 
+func runKu(a *App, opts shellOpts) (string, error) {
+	bin, err := exec.LookPath("kubectl")
+	if err != nil {
+		log.Error().Err(err).Msgf("kubectl command is not in your path")
+		return "", err
+	}
+	var args []string
+	if u, err := a.Conn().Config().ImpersonateUser(); err == nil {
+		args = append(args, "--as", u)
+	}
+	if g, err := a.Conn().Config().ImpersonateGroups(); err == nil {
+		args = append(args, "--as-group", g)
+	}
+	args = append(args, "--context", a.Config.K9s.CurrentContext)
+	if cfg := a.Conn().Config().Flags().KubeConfig; cfg != nil && *cfg != "" {
+		args = append(args, "--kubeconfig", *cfg)
+	}
+	if len(args) > 0 {
+		opts.args = append(args, opts.args...)
+	}
+	opts.binary, opts.background = bin, false
+
+	return oneShoot(opts)
+}
+
+func oneShoot(opts shellOpts) (string, error) {
+	if opts.clear {
+		clearScreen()
+	}
+
+	log.Debug().Msgf("Running command> %s %s", opts.binary, strings.Join(opts.args, " "))
+	cmd := exec.Command(opts.binary, opts.args...)
+
+	var err error
+	buff := bytes.NewBufferString("")
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, buff, buff
+	_, _ = cmd.Stdout.Write([]byte(opts.banner))
+	err = cmd.Run()
+	log.Debug().Msgf("RES %q", buff)
+
+	return strings.Trim(buff.String(), "\n"), err
+}
+
 func clearScreen() {
 	fmt.Print("\033[H\033[2J")
 }
@@ -134,8 +178,14 @@ const (
 )
 
 func ssh(a *App, node string) error {
-	nukeK9sShell(a)
-	defer nukeK9sShell(a)
+	if err := nukeK9sShell(a); err != nil {
+		return err
+	}
+	defer func() {
+		if err := nukeK9sShell(a); err != nil {
+			log.Error().Err(err).Msgf("nuking k9s shell pod")
+		}
+	}()
 	if err := launchShellPod(a, node); err != nil {
 		return err
 	}
@@ -145,23 +195,27 @@ func ssh(a *App, node string) error {
 	return nil
 }
 
-func nukeK9sShell(a *App) {
+func nukeK9sShell(a *App) error {
 	cl := a.Config.K9s.CurrentCluster
 	if !a.Config.K9s.Clusters[cl].FeatureGates.NodeShell {
-		return
+		return nil
 	}
 
 	ns := a.Config.K9s.ActiveCluster().ShellPod.Namespace
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	err := a.Conn().DialOrDie().CoreV1().Pods(ns).Delete(ctx, k9sShellPodName(), metav1.DeleteOptions{})
-	if kerrors.IsNotFound(err) {
-		return
-	}
+	dial, err := a.Conn().Dial()
 	if err != nil {
-		log.Error().Err(err).Msgf("Fail to delete pod %s", k9sShell)
+		return err
 	}
+
+	err = dial.CoreV1().Pods(ns).Delete(ctx, k9sShellPodName(), metav1.DeleteOptions{})
+	if kerrors.IsNotFound(err) {
+		return nil
+	}
+
+	return err
 }
 
 func launchShellPod(a *App, node string) error {
@@ -169,8 +223,13 @@ func launchShellPod(a *App, node string) error {
 	spec := k9sShellPod(node, a.Config.K9s.ActiveCluster().ShellPod)
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	dial := a.Conn().DialOrDie().CoreV1().Pods(ns)
-	if _, err := dial.Create(ctx, &spec, metav1.CreateOptions{}); err != nil {
+
+	dial, err := a.Conn().Dial()
+	if err != nil {
+		return err
+	}
+	conn := dial.CoreV1().Pods(ns)
+	if _, err := conn.Create(ctx, &spec, metav1.CreateOptions{}); err != nil {
 		return err
 	}
 

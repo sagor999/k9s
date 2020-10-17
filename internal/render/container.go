@@ -49,6 +49,8 @@ func (c Container) ColorerFunc() ColorerFunc {
 			return DefaultColorer(ns, h, re)
 		}
 		switch strings.TrimSpace(re.Row.Fields[stateCol]) {
+		case Pending:
+			return PendingColor
 		case ContainerCreating, PodInitializing:
 			return AddColor
 		case Terminating, Initialized:
@@ -67,6 +69,7 @@ func (c Container) ColorerFunc() ColorerFunc {
 func (Container) Header(ns string) Header {
 	return Header{
 		HeaderColumn{Name: "NAME"},
+		HeaderColumn{Name: "PF"},
 		HeaderColumn{Name: "IMAGE"},
 		HeaderColumn{Name: "READY"},
 		HeaderColumn{Name: "STATE"},
@@ -101,6 +104,7 @@ func (c Container) Render(o interface{}, name string, r *Row) error {
 	r.ID = co.Container.Name
 	r.Fields = Fields{
 		co.Container.Name,
+		"●",
 		co.Container.Image,
 		ready,
 		state,
@@ -151,18 +155,18 @@ func gatherMetrics(co *v1.Container, mx *mv1beta1.ContainerMetrics) (c, p, l met
 
 	rcpu, rmem := containerResources(*co)
 	if rcpu != nil {
-		p.cpu = IntToStr(client.ToPercentage(cpu, rcpu.MilliValue()))
+		p.cpu = client.ToPercentageStr(cpu, rcpu.MilliValue())
 	}
 	if rmem != nil {
-		p.mem = IntToStr(client.ToPercentage(mem, client.ToMB(rmem.Value())))
+		p.mem = client.ToPercentageStr(mem, client.ToMB(rmem.Value()))
 	}
 
 	lcpu, lmem := containerLimits(*co)
 	if lcpu != nil {
-		l.cpu = IntToStr(client.ToPercentage(cpu, lcpu.MilliValue()))
+		l.cpu = client.ToPercentageStr(cpu, lcpu.MilliValue())
 	}
 	if lmem != nil {
-		l.mem = IntToStr(client.ToPercentage(mem, client.ToMB(lmem.Value())))
+		l.mem = client.ToPercentageStr(mem, client.ToMB(lmem.Value()))
 	}
 
 	return

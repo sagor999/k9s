@@ -7,15 +7,14 @@ import (
 
 	"github.com/derailed/k9s/internal/config"
 	"github.com/derailed/k9s/internal/render"
-	"github.com/derailed/tview"
 	"github.com/fsnotify/fsnotify"
 	"github.com/rs/zerolog/log"
 )
 
 // Synchronizer manages ui event queue.
 type synchronizer interface {
-	QueueUpdateDraw(func()) *tview.Application
-	QueueUpdate(func()) *tview.Application
+	QueueUpdateDraw(func())
+	QueueUpdate(func())
 }
 
 // Configurator represents an application configurationa.
@@ -117,14 +116,14 @@ func (c *Configurator) StylesWatcher(ctx context.Context, s synchronizer) error 
 
 // BenchConfig location of the benchmarks configuration file.
 func BenchConfig(context string) string {
-	return filepath.Join(config.K9sHome, config.K9sBench+"-"+context+".yml")
+	return filepath.Join(config.K9sHome(), config.K9sBench+"-"+context+".yml")
 }
 
 // RefreshStyles load for skin configuration changes.
 func (c *Configurator) RefreshStyles(context string) {
 	c.BenchFile = BenchConfig(context)
 
-	clusterSkins := filepath.Join(config.K9sHome, fmt.Sprintf("%s_skin.yml", context))
+	clusterSkins := filepath.Join(config.K9sHome(), fmt.Sprintf("%s_skin.yml", context))
 	if c.Styles == nil {
 		c.Styles = config.NewStyles()
 	} else {
@@ -156,6 +155,7 @@ func (c *Configurator) updateStyles(f string) {
 	render.AddColor = c.Styles.Frame().Status.AddColor.Color()
 	render.ErrColor = c.Styles.Frame().Status.ErrorColor.Color()
 	render.StdColor = c.Styles.Frame().Status.NewColor.Color()
+	render.PendingColor = c.Styles.Frame().Status.PendingColor.Color()
 	render.HighlightColor = c.Styles.Frame().Status.HighlightColor.Color()
 	render.KillColor = c.Styles.Frame().Status.KillColor.Color()
 	render.CompletedColor = c.Styles.Frame().Status.CompletedColor.Color()

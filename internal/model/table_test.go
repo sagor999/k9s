@@ -33,7 +33,7 @@ func TestTableRefresh(t *testing.T) {
 	ctx = context.WithValue(ctx, internal.KeyWithMetrics, false)
 	ta.Refresh(ctx)
 	data := ta.Peek()
-	assert.Equal(t, 17, len(data.Header))
+	assert.Equal(t, 18, len(data.Header))
 	assert.Equal(t, 1, len(data.RowEvents))
 	assert.Equal(t, client.NamespaceAll, data.Namespace)
 	assert.Equal(t, 1, l.count)
@@ -100,8 +100,8 @@ func (f tableFactory) List(gvr, ns string, wait bool, sel labels.Selector) ([]ru
 	}
 	return nil, nil
 }
-func (f tableFactory) ForResource(ns, gvr string) informers.GenericInformer {
-	return nil
+func (f tableFactory) ForResource(ns, gvr string) (informers.GenericInformer, error) {
+	return nil, nil
 }
 func (f tableFactory) CanForResource(ns, gvr string, verbs []string) (informers.GenericInformer, error) {
 	return nil, nil

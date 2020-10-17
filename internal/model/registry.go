@@ -10,6 +10,14 @@ import (
 // BOZO!! Break up deps and merge into single registrar
 var Registry = map[string]ResourceMeta{
 	// Custom...
+	"references": {
+		DAO:      &dao.Reference{},
+		Renderer: &render.Reference{},
+	},
+	"dir": {
+		DAO:      &dao.Dir{},
+		Renderer: &render.Dir{},
+	},
 	"helm": {
 		DAO:      &dao.Helm{},
 		Renderer: &render.Helm{},

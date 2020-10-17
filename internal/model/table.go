@@ -37,6 +37,7 @@ type Table struct {
 	refreshRate time.Duration
 	instance    string
 	mx          sync.RWMutex
+	labelFilter string
 }
 
 // NewTable returns a new table model.
@@ -46,6 +47,11 @@ func NewTable(gvr client.GVR) *Table {
 		data:        render.NewTableData(),
 		refreshRate: 2 * time.Second,
 	}
+}
+
+// SetLabelFilter sets the labels filter.
+func (t *Table) SetLabelFilter(f string) {
+	t.labelFilter = f
 }
 
 // SetInstance sets a single entry table.
@@ -69,6 +75,8 @@ func (t *Table) RemoveListener(l TableListener) {
 	}
 
 	if victim >= 0 {
+		t.mx.Lock()
+		defer t.mx.Unlock()
 		t.listeners = append(t.listeners[:victim], t.listeners[victim+1:]...)
 	}
 }
@@ -201,7 +209,7 @@ func (t *Table) refresh(ctx context.Context) {
 	defer atomic.StoreInt32(&t.inUpdate, 0)
 
 	if err := t.reconcile(ctx); err != nil {
-		log.Error().Err(err).Msg("Reconcile failed")
+		log.Error().Err(err).Msgf("reconcile failed %q::%q", t.gvr, t.instance)
 		t.fireTableLoadFailed(err)
 		return
 	}
@@ -225,6 +233,9 @@ func (t *Table) list(ctx context.Context, a dao.Accessor) ([]runtime.Object, err
 
 func (t *Table) reconcile(ctx context.Context) error {
 	meta := t.resourceMeta()
+	if t.labelFilter != "" {
+		ctx = context.WithValue(ctx, internal.KeyLabels, t.labelFilter)
+	}
 	var (
 		oo  []runtime.Object
 		err error
@@ -236,7 +247,6 @@ func (t *Table) reconcile(ctx context.Context) error {
 		oo, err = []runtime.Object{o}, e
 	}
 	if err != nil {
-		log.Error().Err(err).Msg("Reconcile failed to list resource")
 		return err
 	}
 
@@ -303,6 +313,9 @@ func (t *Table) resourceMeta() ResourceMeta {
 }
 
 func (t *Table) fireTableChanged(data render.TableData) {
+	t.mx.RLock()
+	defer t.mx.RUnlock()
+
 	for _, l := range t.listeners {
 		l.TableDataChanged(data)
 	}

@@ -9,6 +9,7 @@ import (
 	"github.com/derailed/k9s/internal"
 	"github.com/derailed/k9s/internal/client"
 	"github.com/derailed/k9s/internal/watch"
+	"github.com/rs/zerolog/log"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -56,7 +57,11 @@ func (d *DaemonSet) Restart(ctx context.Context, path string) error {
 		return err
 	}
 
-	_, err = d.Client().DialOrDie().AppsV1().DaemonSets(ds.Namespace).Patch(
+	dial, err := d.Client().Dial()
+	if err != nil {
+		return err
+	}
+	_, err = dial.AppsV1().DaemonSets(ds.Namespace).Patch(
 		ctx,
 		ds.Name,
 		types.StrategicMergePatchType,
@@ -129,7 +134,7 @@ func (d *DaemonSet) Pod(fqn string) (string, error) {
 
 // GetInstance returns a daemonset instance.
 func (d *DaemonSet) GetInstance(fqn string) (*appsv1.DaemonSet, error) {
-	o, err := d.Factory.Get(d.gvr.String(), fqn, false, labels.Everything())
+	o, err := d.Factory.Get(d.gvr.String(), fqn, true, labels.Everything())
 	if err != nil {
 		return nil, err
 	}
@@ -141,6 +146,83 @@ func (d *DaemonSet) GetInstance(fqn string) (*appsv1.DaemonSet, error) {
 	}
 
 	return &ds, nil
+}
+
+// ScanSA scans for serviceaccount refs.
+func (d *DaemonSet) ScanSA(ctx context.Context, fqn string, wait bool) (Refs, error) {
+	ns, n := client.Namespaced(fqn)
+	oo, err := d.Factory.List(d.GVR(), ns, wait, labels.Everything())
+	if err != nil {
+		return nil, err
+	}
+
+	refs := make(Refs, 0, len(oo))
+	for _, o := range oo {
+		var ds appsv1.DaemonSet
+		err = runtime.DefaultUnstructuredConverter.FromUnstructured(o.(*unstructured.Unstructured).Object, &ds)
+		if err != nil {
+			return nil, errors.New("expecting DaemonSet resource")
+		}
+		if ds.Spec.Template.Spec.ServiceAccountName == n {
+			refs = append(refs, Ref{
+				GVR: d.GVR(),
+				FQN: client.FQN(ds.Namespace, ds.Name),
+			})
+		}
+	}
+
+	return refs, nil
+}
+
+// Scan scans for cluster refs.
+func (d *DaemonSet) Scan(ctx context.Context, gvr, fqn string, wait bool) (Refs, error) {
+	ns, n := client.Namespaced(fqn)
+	oo, err := d.Factory.List(d.GVR(), ns, wait, labels.Everything())
+	if err != nil {
+		return nil, err
+	}
+
+	refs := make(Refs, 0, len(oo))
+	for _, o := range oo {
+		var ds appsv1.DaemonSet
+		err = runtime.DefaultUnstructuredConverter.FromUnstructured(o.(*unstructured.Unstructured).Object, &ds)
+		if err != nil {
+			return nil, errors.New("expecting StatefulSet resource")
+		}
+		switch gvr {
+		case "v1/configmaps":
+			if !hasConfigMap(&ds.Spec.Template.Spec, n) {
+				continue
+			}
+			refs = append(refs, Ref{
+				GVR: d.GVR(),
+				FQN: client.FQN(ds.Namespace, ds.Name),
+			})
+		case "v1/secrets":
+			found, err := hasSecret(d.Factory, &ds.Spec.Template.Spec, ds.Namespace, n, wait)
+			if err != nil {
+				log.Warn().Err(err).Msgf("locate secret %q", fqn)
+				continue
+			}
+			if !found {
+				continue
+			}
+			refs = append(refs, Ref{
+				GVR: d.GVR(),
+				FQN: client.FQN(ds.Namespace, ds.Name),
+			})
+		case "v1/persistentvolumeclaims":
+			if !hasPVC(&ds.Spec.Template.Spec, n) {
+				continue
+			}
+			refs = append(refs, Ref{
+				GVR: d.GVR(),
+				FQN: client.FQN(ds.Namespace, ds.Name),
+			})
+		}
+	}
+
+	return refs, nil
 }
 
 // ----------------------------------------------------------------------------

@@ -29,7 +29,7 @@ func TestLogFullBuffer(t *testing.T) {
 		data = append(data, dao.NewLogItemFromString("line"+strconv.Itoa(i)))
 		m.Append(data[i])
 	}
-	m.Notify(true)
+	m.Notify()
 
 	assert.Equal(t, 1, v.dataCalled)
 	assert.Equal(t, 1, v.clearCalled)
@@ -73,15 +73,15 @@ func TestLogFilter(t *testing.T) {
 				m.Append(data[i])
 			}
 
-			m.Notify(true)
+			m.Notify()
 			assert.Equal(t, 1, v.dataCalled)
-			assert.Equal(t, 2, v.clearCalled)
+			assert.Equal(t, 1, v.clearCalled)
 			assert.Equal(t, 0, v.errCalled)
 			assert.Equal(t, u.e, len(v.data))
 
 			m.ClearFilter()
 			assert.Equal(t, 2, v.dataCalled)
-			assert.Equal(t, 3, v.clearCalled)
+			assert.Equal(t, 2, v.clearCalled)
 			assert.Equal(t, 0, v.errCalled)
 			assert.Equal(t, size, len(v.data))
 		})
@@ -100,7 +100,7 @@ func TestLogStartStop(t *testing.T) {
 	for _, d := range data {
 		m.Append(d)
 	}
-	m.Notify(true)
+	m.Notify()
 	m.Stop()
 
 	assert.Equal(t, 1, v.dataCalled)
@@ -122,7 +122,7 @@ func TestLogClear(t *testing.T) {
 	for _, d := range data {
 		m.Append(d)
 	}
-	m.Notify(true)
+	m.Notify()
 	m.Clear()
 
 	assert.Equal(t, 1, v.dataCalled)
@@ -167,7 +167,7 @@ func TestLogAppend(t *testing.T) {
 	assert.Equal(t, 1, v.dataCalled)
 	assert.Equal(t, items, v.data)
 
-	m.Notify(true)
+	m.Notify()
 	assert.Equal(t, 2, v.dataCalled)
 	assert.Equal(t, 1, v.clearCalled)
 	assert.Equal(t, 0, v.errCalled)
@@ -191,11 +191,12 @@ func TestLogTimedout(t *testing.T) {
 	for _, d := range data {
 		m.Append(d)
 	}
-	m.Notify(true)
+	m.Notify()
 	assert.Equal(t, 1, v.dataCalled)
-	assert.Equal(t, 2, v.clearCalled)
+	assert.Equal(t, 1, v.clearCalled)
 	assert.Equal(t, 0, v.errCalled)
-	assert.Equal(t, dao.LogItems{data[0]}, v.data)
+	const e = "\x1b[38;5;209ml\x1b[0m\x1b[38;5;209mi\x1b[0m\x1b[38;5;209mn\x1b[0m\x1b[38;5;209me\x1b[0m\x1b[38;5;209m1\x1b[0m"
+	assert.Equal(t, e, string(v.data[0].Bytes))
 }
 
 // ----------------------------------------------------------------------------
@@ -250,8 +251,8 @@ func (f testFactory) Get(gvr, path string, wait bool, sel labels.Selector) (runt
 func (f testFactory) List(gvr, ns string, wait bool, sel labels.Selector) ([]runtime.Object, error) {
 	return nil, nil
 }
-func (f testFactory) ForResource(ns, gvr string) informers.GenericInformer {
-	return nil
+func (f testFactory) ForResource(ns, gvr string) (informers.GenericInformer, error) {
+	return nil, nil
 }
 func (f testFactory) CanForResource(ns, gvr string, verbs []string) (informers.GenericInformer, error) {
 	return nil, nil

@@ -6,6 +6,15 @@ k9s:
   info:
     fgColor: white
     sectionColor: dodgerblue
+  dialog:
+    fgColor: dodgerblue
+    bgColor: black
+    buttonFgColor: black
+    buttonBgColor: dodgerblue
+    buttonFocusFgColor: white
+    buttonFocusBgColor: fuchsia
+    labelFgColor: fuchsia
+    fieldFgColor: dodgerblue
   frame:
     border:
       fgColor: dodgerblue
@@ -23,6 +32,7 @@ k9s:
       modifyColor: greenyellow
       addColor: white
       errorColor: orangered
+      pendingColor: darkorange
       highlightcolor: aqua
       killColor: mediumpurple
       completedColor: gray
@@ -44,7 +54,8 @@ k9s:
     table:
       fgColor: blue
       bgColor: black
-      cursorColor: aqua
+      cursorFgColor: black
+      cursorBgColor: aqua
       markColor: darkgoldenrod
       header:
         fgColor: white

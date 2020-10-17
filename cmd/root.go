@@ -78,18 +78,17 @@ func run(cmd *cobra.Command, args []string) {
 	}()
 
 	zerolog.SetGlobalLevel(parseLevel(*k9sFlags.LogLevel))
-	cfg := loadConfiguration()
-	app := view.NewApp(cfg)
+	app := view.NewApp(loadConfiguration())
 	{
 		defer app.BailOut()
 		if err := app.Init(version, *k9sFlags.RefreshRate); err != nil {
-			panic(err)
+			panic(fmt.Sprintf("app init failed -- %v", err))
 		}
 		if err := app.Run(); err != nil {
-			panic(err)
+			panic(fmt.Sprintf("app run failed %v", err))
 		}
 		if view.ExitStatus != "" {
-			panic(view.ExitStatus)
+			panic(fmt.Sprintf("view exit status %s", view.ExitStatus))
 		}
 	}
 }
@@ -129,17 +128,24 @@ func loadConfiguration() *config.Config {
 	}
 
 	if err := k9sCfg.Refine(k8sFlags); err != nil {
-		log.Panic().Err(err)
+		log.Error().Err(err).Msgf("refine failed")
 	}
-	k9sCfg.SetConnection(client.InitConnectionOrDie(k8sCfg))
-
-	// Try to access server version if that fail. Connectivity issue?
-	if !k9sCfg.GetConnection().CheckConnectivity() {
-		log.Panic().Msgf("K9s can't connect to cluster")
-	}
-	log.Info().Msg("✅ Kubernetes connectivity")
-	if err := k9sCfg.Save(); err != nil {
-		log.Error().Err(err).Msg("Config save")
+	conn, err := client.InitConnection(k8sCfg)
+	k9sCfg.SetConnection(conn)
+	if err != nil {
+		log.Error().Err(err).Msgf("failed to connect to cluster")
+	} else {
+		// Try to access server version if that fail. Connectivity issue?
+		if !k9sCfg.GetConnection().CheckConnectivity() {
+			log.Panic().Msgf("K9s can't connect to cluster")
+		}
+		if !k9sCfg.GetConnection().ConnectionOK() {
+			panic("No connectivity")
+		}
+		log.Info().Msg("✅ Kubernetes connectivity")
+		if err := k9sCfg.Save(); err != nil {
+			log.Error().Err(err).Msg("Config save")
+		}
 	}
 
 	return k9sCfg

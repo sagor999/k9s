@@ -33,7 +33,7 @@ func TestTableReconcile(t *testing.T) {
 	err := ta.reconcile(ctx)
 	assert.Nil(t, err)
 	data := ta.Peek()
-	assert.Equal(t, 17, len(data.Header))
+	assert.Equal(t, 18, len(data.Header))
 	assert.Equal(t, 1, len(data.RowEvents))
 	assert.Equal(t, client.NamespaceAll, data.Namespace)
 }
@@ -106,7 +106,7 @@ func TestTableHydrate(t *testing.T) {
 
 	assert.Nil(t, hydrate("blee", oo, rr, render.Pod{}))
 	assert.Equal(t, 1, len(rr))
-	assert.Equal(t, 17, len(rr[0].Fields))
+	assert.Equal(t, 18, len(rr[0].Fields))
 }
 
 func TestTableGenericHydrate(t *testing.T) {
@@ -193,8 +193,8 @@ func (f testFactory) List(gvr, ns string, wait bool, sel labels.Selector) ([]run
 	}
 	return nil, nil
 }
-func (f testFactory) ForResource(ns, gvr string) informers.GenericInformer {
-	return nil
+func (f testFactory) ForResource(ns, gvr string) (informers.GenericInformer, error) {
+	return nil, nil
 }
 func (f testFactory) CanForResource(ns, gvr string, verbs []string) (informers.GenericInformer, error) {
 	return nil, nil

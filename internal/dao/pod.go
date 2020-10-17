@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/derailed/k9s/internal"
 	"github.com/derailed/k9s/internal/client"
@@ -26,6 +27,11 @@ var (
 	_ Nuker      = (*Pod)(nil)
 	_ Loggable   = (*Pod)(nil)
 	_ Controller = (*Pod)(nil)
+)
+
+const (
+	logRetryCount = 20
+	logRetryWait  = 1 * time.Second
 )
 
 // Pod represents a pod resource.
@@ -67,10 +73,7 @@ func (p *Pod) Get(ctx context.Context, path string) (runtime.Object, error) {
 
 // List returns a collection of nodes.
 func (p *Pod) List(ctx context.Context, ns string) ([]runtime.Object, error) {
-	sel, ok := ctx.Value(internal.KeyFields).(string)
-	if !ok {
-		return nil, fmt.Errorf("expecting a fieldSelector in context")
-	}
+	sel, _ := ctx.Value(internal.KeyFields).(string)
 	fsel, err := labels.ConvertSelectorToLabelsMap(sel)
 	if err != nil {
 		return nil, err
@@ -123,8 +126,13 @@ func (p *Pod) Logs(path string, opts *v1.PodLogOptions) (*restclient.Request, er
 		return nil, fmt.Errorf("user is not authorized to view pod logs")
 	}
 
+	dial, err := p.Client().Dial()
+	if err != nil {
+		return nil, err
+	}
+
 	ns, n := client.Namespaced(path)
-	return p.Client().DialOrDie().CoreV1().Pods(ns).GetLogs(n, opts), nil
+	return dial.CoreV1().Pods(ns).GetLogs(n, opts), nil
 }
 
 // Containers returns all container names on pod
@@ -155,7 +163,7 @@ func (p *Pod) Pod(fqn string) (string, error) {
 
 // GetInstance returns a pod instance.
 func (p *Pod) GetInstance(fqn string) (*v1.Pod, error) {
-	o, err := p.Factory.Get(p.gvr.String(), fqn, false, labels.Everything())
+	o, err := p.Factory.Get(p.gvr.String(), fqn, true, labels.Everything())
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +205,7 @@ func (p *Pod) TailLogs(ctx context.Context, c LogChan, opts LogOptions) error {
 	for _, co := range po.Spec.InitContainers {
 		log.Debug().Msgf("Tailing INIT-CO %q", co.Name)
 		opts.Container = co.Name
-		if err := p.TailLogs(ctx, c, opts); err != nil {
+		if err := tailLogs(ctx, p, c, opts); err != nil {
 			return err
 		}
 		tailed = true
@@ -226,21 +234,133 @@ func (p *Pod) TailLogs(ctx context.Context, c LogChan, opts LogOptions) error {
 	return nil
 }
 
-func tailLogs(ctx context.Context, logger Logger, c LogChan, opts LogOptions) error {
-	log.Debug().Msgf("Tailing logs for %q:%q", opts.Path, opts.Container)
-	req, err := logger.Logs(opts.Path, opts.ToPodLogOptions())
+// ScanSA scans for serviceaccount refs.
+func (p *Pod) ScanSA(ctx context.Context, fqn string, wait bool) (Refs, error) {
+	ns, n := client.Namespaced(fqn)
+	oo, err := p.Factory.List(p.GVR(), ns, wait, labels.Everything())
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	// This call will block if nothing is in the stream!!
-	stream, err := req.Stream(ctx)
+	refs := make(Refs, 0, len(oo))
+	for _, o := range oo {
+		var pod v1.Pod
+		err = runtime.DefaultUnstructuredConverter.FromUnstructured(o.(*unstructured.Unstructured).Object, &pod)
+		if err != nil {
+			return nil, errors.New("expecting Deployment resource")
+		}
+		// Just pick controller less pods...
+		if len(pod.ObjectMeta.OwnerReferences) > 0 {
+			continue
+		}
+		if pod.Spec.ServiceAccountName == n {
+			refs = append(refs, Ref{
+				GVR: p.GVR(),
+				FQN: client.FQN(pod.Namespace, pod.Name),
+			})
+		}
+	}
+
+	return refs, nil
+}
+
+// Scan scans for cluster resource refs.
+func (p *Pod) Scan(ctx context.Context, gvr, fqn string, wait bool) (Refs, error) {
+	ns, n := client.Namespaced(fqn)
+	oo, err := p.Factory.List(p.GVR(), ns, wait, labels.Everything())
 	if err != nil {
-		c <- opts.DecorateLog([]byte(err.Error() + "\n"))
+		return nil, err
+	}
+
+	refs := make(Refs, 0, len(oo))
+	for _, o := range oo {
+		var pod v1.Pod
+		err = runtime.DefaultUnstructuredConverter.FromUnstructured(o.(*unstructured.Unstructured).Object, &pod)
+		if err != nil {
+			return nil, errors.New("expecting Pod resource")
+		}
+		// Just pick controller less pods...
+		if len(pod.ObjectMeta.OwnerReferences) > 0 {
+			continue
+		}
+		switch gvr {
+		case "v1/configmaps":
+			if !hasConfigMap(&pod.Spec, n) {
+				continue
+			}
+			refs = append(refs, Ref{
+				GVR: p.GVR(),
+				FQN: client.FQN(pod.Namespace, pod.Name),
+			})
+		case "v1/secrets":
+			found, err := hasSecret(p.Factory, &pod.Spec, pod.Namespace, n, wait)
+			if err != nil {
+				log.Warn().Err(err).Msgf("locate secret %q", fqn)
+				continue
+			}
+			if !found {
+				continue
+			}
+			refs = append(refs, Ref{
+				GVR: p.GVR(),
+				FQN: client.FQN(pod.Namespace, pod.Name),
+			})
+		case "v1/persistentvolumeclaims":
+			if !hasPVC(&pod.Spec, n) {
+				continue
+			}
+			refs = append(refs, Ref{
+				GVR: p.GVR(),
+				FQN: client.FQN(pod.Namespace, pod.Name),
+			})
+		}
+	}
+
+	return refs, nil
+}
+
+// ----------------------------------------------------------------------------
+// Helpers...
+
+func tailLogs(ctx context.Context, logger Logger, c LogChan, opts LogOptions) error {
+	log.Debug().Msgf("Tailing logs for %q:%q", opts.Path, opts.Container)
+
+	var (
+		err    error
+		req    *restclient.Request
+		stream io.ReadCloser
+	)
+done:
+	for r := 0; r < logRetryCount; r++ {
+		log.Debug().Msgf("Retry logs %d", r)
+		req, err = logger.Logs(opts.Path, opts.ToPodLogOptions())
+		if err == nil {
+			// This call will block if nothing is in the stream!!
+			if stream, err = req.Stream(ctx); err == nil {
+				log.Debug().Msgf("Reading logs")
+				go readLogs(stream, c, opts)
+				break
+			} else {
+				log.Error().Err(err).Msg("Streaming logs")
+			}
+		} else {
+			log.Error().Err(err).Msg("Requesting logs")
+		}
+
+		select {
+		case <-ctx.Done():
+			err = ctx.Err()
+			break done
+		default:
+			time.Sleep(logRetryWait)
+		}
+	}
+
+	if err != nil {
 		log.Error().Err(err).Msgf("Unable to obtain log stream failed for `%s", opts.Path)
+		c <- opts.DecorateLog([]byte("\n" + err.Error() + "\n"))
 		return err
 	}
-	go readLogs(stream, c, opts)
 
 	return nil
 }
@@ -259,19 +379,16 @@ func readLogs(stream io.ReadCloser, c LogChan, opts LogOptions) {
 		if err != nil {
 			if err == io.EOF {
 				log.Warn().Err(err).Msgf("Stream closed for %s", opts.Info())
-				c <- opts.DecorateLog([]byte("log stream closed\n"))
+				c <- opts.DecorateLog([]byte("\nlog stream closed\n"))
 				return
 			}
 			log.Warn().Err(err).Msgf("Stream READ error %s", opts.Info())
-			c <- opts.DecorateLog([]byte("log stream failed\n"))
+			c <- opts.DecorateLog([]byte(fmt.Sprintf("\nlog stream failed: %#v\n", err)))
 			return
 		}
 		c <- opts.DecorateLog(bytes)
 	}
 }
-
-// ----------------------------------------------------------------------------
-// Helpers...
 
 func podMetricsFor(o runtime.Object, mmx *mv1beta1.PodMetricsList) *mv1beta1.PodMetrics {
 	if mmx == nil {

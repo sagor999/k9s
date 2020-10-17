@@ -40,37 +40,6 @@ func NewCmdBuff(key rune, kind BufferKind) *CmdBuff {
 	}
 }
 
-// CurrentSuggestion returns the current suggestion.
-func (c *CmdBuff) CurrentSuggestion() (string, bool) {
-	return "", false
-}
-
-// NextSuggestion returns the next suggestion.
-func (c *CmdBuff) NextSuggestion() (string, bool) {
-	return "", false
-}
-
-// PrevSuggestion returns the prev suggestion.
-func (c *CmdBuff) PrevSuggestion() (string, bool) {
-	return "", false
-}
-
-// ClearSuggestions clear out all suggestions.
-func (c *CmdBuff) ClearSuggestions() {}
-
-// AutoSuggests returns true if model implements auto suggestions.
-func (c *CmdBuff) AutoSuggests() bool {
-	return false
-}
-
-// Suggestions returns suggestions.
-func (c *CmdBuff) Suggestions() []string {
-	return nil
-}
-
-// Notify notifies all listener of current suggestions.
-func (c *CmdBuff) Notify() {}
-
 // InCmdMode checks if a command exists and the buffer is active.
 func (c *CmdBuff) InCmdMode() bool {
 	return c.active || len(c.buff) > 0
@@ -98,7 +67,7 @@ func (c *CmdBuff) SetText(cmd string) {
 	c.fireBufferChanged()
 }
 
-// Add adds a new charater to the buffer.
+// Add adds a new character to the buffer.
 func (c *CmdBuff) Add(r rune) {
 	c.buff = append(c.buff, r)
 	c.fireBufferChanged()
@@ -114,15 +83,16 @@ func (c *CmdBuff) Delete() {
 }
 
 // ClearText clears out command buffer.
-func (c *CmdBuff) ClearText() {
+func (c *CmdBuff) ClearText(fire bool) {
 	c.buff = make([]rune, 0, maxBuff)
-	c.fireBufferChanged()
+	if fire {
+		c.fireBufferChanged()
+	}
 }
 
 // Reset clears out the command buffer and deactivates it.
 func (c *CmdBuff) Reset() {
-	c.ClearText()
-	c.fireBufferChanged()
+	c.ClearText(true)
 	c.SetActive(false)
 }
 
@@ -139,7 +109,7 @@ func (c *CmdBuff) AddListener(w BuffWatcher) {
 	c.listeners = append(c.listeners, w)
 }
 
-// RemoveListener unregisters a listener.
+// RemoveListener removes a listener.
 func (c *CmdBuff) RemoveListener(l BuffWatcher) {
 	victim := -1
 	for i, lis := range c.listeners {

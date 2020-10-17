@@ -57,7 +57,9 @@ func (b *Browser) Init(ctx context.Context) error {
 			return e
 		}
 	}
-	b.app.CmdBuff().Reset()
+	if b.App().IsRunning() {
+		b.app.CmdBuff().Reset()
+	}
 
 	b.bindKeys()
 	if b.bindKeysFn != nil {
@@ -73,7 +75,6 @@ func (b *Browser) Init(ctx context.Context) error {
 	if row == 0 && b.GetRowCount() > 0 {
 		b.Select(1, 0)
 	}
-	b.GetModel().AddListener(b)
 	b.GetModel().SetRefreshRate(time.Duration(b.App().Config.K9s.GetRefreshRate()) * time.Second)
 
 	b.CmdBuff().SetSuggestionFn(b.suggestFilter())
@@ -92,15 +93,12 @@ func (b *Browser) suggestFilter() model.SuggestionFunc {
 
 		s = strings.ToLower(s)
 		for _, h := range b.App().filterHistory.List() {
-			if h == s {
+			if s == h {
 				continue
 			}
 			if strings.HasPrefix(h, s) {
 				entries = append(entries, strings.Replace(h, s, "", 1))
 			}
-		}
-		if len(entries) == 0 {
-			return nil
 		}
 		return
 	}
@@ -126,6 +124,7 @@ func (b *Browser) Start() {
 	}
 
 	b.Stop()
+	b.GetModel().AddListener(b)
 	b.Table.Start()
 	b.CmdBuff().AddListener(b)
 	b.GetModel().Watch(b.prepareContext())
@@ -133,27 +132,37 @@ func (b *Browser) Start() {
 
 // Stop terminates browser updates.
 func (b *Browser) Stop() {
-	b.CmdBuff().RemoveListener(b)
-	b.Table.Stop()
+	log.Debug().Msgf("BRO-STOP %v", b.GVR())
 	if b.cancelFn != nil {
 		b.cancelFn()
 		b.cancelFn = nil
 	}
+	b.GetModel().RemoveListener(b)
+	b.CmdBuff().RemoveListener(b)
+	b.Table.Stop()
 }
 
 // BufferChanged indicates the buffer was changed.
-func (b *Browser) BufferChanged(s string) {}
+func (b *Browser) BufferChanged(s string) {
+	if ui.IsLabelSelector(s) {
+		b.GetModel().SetLabelFilter(ui.TrimLabelSelector(s))
+	} else {
+		b.GetModel().SetLabelFilter("")
+	}
+}
 
 // BufferActive indicates the buff activity changed.
 func (b *Browser) BufferActive(state bool, k model.BufferKind) {
-	if b.cancelFn != nil {
-		b.cancelFn()
+	if state {
+		return
 	}
-	b.GetModel().Watch(b.prepareContext())
-
-	if !state && b.GetRowCount() > 1 {
-		b.App().filterHistory.Push(b.CmdBuff().GetText())
-	}
+	b.GetModel().Refresh(b.prepareContext())
+	b.app.QueueUpdateDraw(func() {
+		b.Update(b.GetModel().Peek())
+		if b.GetRowCount() > 1 {
+			b.App().filterHistory.Push(b.CmdBuff().GetText())
+		}
+	})
 }
 
 func (b *Browser) prepareContext() context.Context {
@@ -192,9 +201,10 @@ func (b *Browser) Aliases() []string {
 
 // TableDataChanged notifies view new data is available.
 func (b *Browser) TableDataChanged(data render.TableData) {
-	if !b.app.ConOK() {
+	if !b.app.ConOK() || b.cancelFn == nil || !b.app.IsRunning() {
 		return
 	}
+
 	b.app.QueueUpdateDraw(func() {
 		b.refreshActions()
 		b.Update(data)
@@ -235,15 +245,14 @@ func (b *Browser) viewCmd(evt *tcell.EventKey) *tcell.EventKey {
 
 func (b *Browser) resetCmd(evt *tcell.EventKey) *tcell.EventKey {
 	if !b.CmdBuff().InCmdMode() {
-		b.CmdBuff().Reset()
+		b.CmdBuff().ClearText(false)
 		return b.App().PrevCmd(evt)
 	}
 
+	b.CmdBuff().Reset()
 	if ui.IsLabelSelector(b.CmdBuff().GetText()) {
-		b.CmdBuff().Reset()
 		b.Start()
 	}
-	b.CmdBuff().Reset()
 	b.Refresh()
 
 	return nil
@@ -326,7 +335,9 @@ func (b *Browser) editCmd(evt *tcell.EventKey) *tcell.EventKey {
 
 	}
 	ns, n := client.Namespaced(path)
-
+	if client.IsClusterScoped(ns) {
+		ns = client.AllNamespaces
+	}
 	if ok, err := b.app.Conn().CanI(ns, b.GVR().String(), []string{"patch"}); !ok || err != nil {
 		b.App().Flash().Err(fmt.Errorf("Current user can't edit resource %s", b.GVR()))
 		return nil
@@ -338,7 +349,9 @@ func (b *Browser) editCmd(evt *tcell.EventKey) *tcell.EventKey {
 		args := make([]string, 0, 10)
 		args = append(args, "edit")
 		args = append(args, b.meta.SingularName)
-		args = append(args, "-n", ns)
+		if ns != client.AllNamespaces {
+			args = append(args, "-n", ns)
+		}
 		if !runK(b.app, shellOpts{clear: true, args: append(args, n)}) {
 			b.app.Flash().Err(errors.New("Edit exec failed"))
 		}
@@ -399,22 +412,23 @@ func (b *Browser) setNamespace(ns string) {
 }
 
 func (b *Browser) defaultContext() context.Context {
-	ctx := context.Background()
-	ctx = context.WithValue(ctx, internal.KeyFactory, b.app.factory)
+	ctx := context.WithValue(context.Background(), internal.KeyFactory, b.app.factory)
 	ctx = context.WithValue(ctx, internal.KeyGVR, b.GVR().String())
-	ctx = context.WithValue(ctx, internal.KeyPath, b.Path)
-
-	ctx = context.WithValue(ctx, internal.KeyLabels, "")
+	if b.Path != "" {
+		ctx = context.WithValue(ctx, internal.KeyPath, b.Path)
+	}
 	if ui.IsLabelSelector(b.CmdBuff().GetText()) {
 		ctx = context.WithValue(ctx, internal.KeyLabels, ui.TrimLabelSelector(b.CmdBuff().GetText()))
 	}
-	ctx = context.WithValue(ctx, internal.KeyFields, "")
 	ctx = context.WithValue(ctx, internal.KeyNamespace, client.CleanseNamespace(b.App().Config.ActiveNamespace()))
 
 	return ctx
 }
 
 func (b *Browser) refreshActions() {
+	if b.App().Content.Top().Name() != b.Name() {
+		return
+	}
 	aa := ui.KeyActions{
 		ui.KeyC:        ui.NewKeyAction("Copy", b.cpCmd, false),
 		tcell.KeyEnter: ui.NewKeyAction("View", b.enterCmd, false),
@@ -467,7 +481,7 @@ func (b *Browser) namespaceActions(aa ui.KeyActions) {
 }
 
 func (b *Browser) simpleDelete(selections []string, msg string) {
-	dialog.ShowConfirm(b.app.Content.Pages, "Confirm Delete", msg, func() {
+	dialog.ShowConfirm(b.app.Styles.Dialog(), b.app.Content.Pages, "Confirm Delete", msg, func() {
 		b.ShowDeleted()
 		if len(selections) > 1 {
 			b.app.Flash().Infof("Delete %d marked %s", len(selections), b.GVR())
@@ -491,7 +505,7 @@ func (b *Browser) simpleDelete(selections []string, msg string) {
 }
 
 func (b *Browser) resourceDelete(selections []string, msg string) {
-	dialog.ShowDelete(b.app.Content.Pages, msg, func(cascade, force bool) {
+	dialog.ShowDelete(b.app.Styles.Dialog(), b.app.Content.Pages, msg, func(cascade, force bool) {
 		b.ShowDeleted()
 		if len(selections) > 1 {
 			b.app.Flash().Infof("Delete %d marked %s", len(selections), b.GVR())

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/derailed/tview"
+	"github.com/derailed/k9s/internal/color"
 	"github.com/rs/zerolog/log"
 	"github.com/sahilm/fuzzy"
 )
@@ -37,10 +37,10 @@ func NewLogItem(b []byte) *LogItem {
 
 // NewLogItemFromString returns a new item.
 func NewLogItemFromString(s string) *LogItem {
-	l := LogItem{Bytes: []byte(s)}
-	l.Timestamp = time.Now().String()
-
-	return &l
+	return &LogItem{
+		Bytes:     []byte(s),
+		Timestamp: time.Now().String(),
+	}
 }
 
 // ID returns pod and or container based id.
@@ -49,6 +49,19 @@ func (l *LogItem) ID() string {
 		return l.Pod
 	}
 	return l.Container
+}
+
+// Clone copies an item.
+func (l *LogItem) Clone() *LogItem {
+	bytes := make([]byte, len(l.Bytes))
+	copy(bytes, l.Bytes)
+	return &LogItem{
+		Container:       l.Container,
+		Pod:             l.Pod,
+		Timestamp:       l.Timestamp,
+		SingleContainer: l.SingleContainer,
+		Bytes:           bytes,
+	}
 }
 
 // Info returns pod and container information.
@@ -61,31 +74,33 @@ func (l *LogItem) IsEmpty() bool {
 	return len(l.Bytes) == 0
 }
 
-const colorFmt = "\033[38;5;%dm%s\033[0m"
-
-// colorize me
-func colorize(s string, c int) string {
-	return fmt.Sprintf(colorFmt, c, s)
-}
+var (
+	escPattern = regexp.MustCompile(`(\[[a-zA-Z0-9_,;: \-\."#]+\[*)\]`)
+	matcher    = []byte("$1[]")
+)
 
 // Render returns a log line as string.
 func (l *LogItem) Render(c int, showTime bool) []byte {
-	bb := make([]byte, 0, 30+len(l.Bytes)+len(l.Info()))
+	bb := make([]byte, 0, 200)
 	if showTime {
-		bb = append(bb, colorize(fmt.Sprintf("%-30s ", l.Timestamp), 106)...)
+		t := l.Timestamp
+		for i := len(t); i < 30; i++ {
+			t += " "
+		}
+		bb = append(bb, color.ANSIColorize(t, 106)...)
+		bb = append(bb, ' ')
 	}
 
 	if l.Pod != "" {
-		bb = append(bb, []byte(colorize(l.Pod, c))...)
+		bb = append(bb, color.ANSIColorize(l.Pod, c)...)
 		bb = append(bb, ':')
 	}
 	if !l.SingleContainer && l.Container != "" {
-		bb = append(bb, []byte(colorize(l.Container, c))...)
+		bb = append(bb, color.ANSIColorize(l.Container, c)...)
 		bb = append(bb, ' ')
 	}
-	bb = append(bb, []byte(tview.Escape(string(l.Bytes)))...)
 
-	return bb
+	return append(bb, escPattern.ReplaceAll(l.Bytes, matcher)...)
 }
 
 func colorFor(n string) int {
@@ -118,15 +133,15 @@ func (l LogItems) Lines() []string {
 
 // Render returns logs as a collection of strings.
 func (l LogItems) Render(showTime bool, ll [][]byte) {
-	colors := map[string]int{}
+	colors := make(map[string]int, len(l))
 	for i, item := range l {
 		info := item.ID()
-		c, ok := colors[item.ID()]
+		color, ok := colors[info]
 		if !ok {
-			c = colorFor(info)
-			colors[info] = c
+			color = colorFor(info)
+			colors[info] = color
 		}
-		ll[i] = item.Render(c, showTime)
+		ll[i] = item.Render(color, showTime)
 	}
 }
 
@@ -139,45 +154,54 @@ func (l LogItems) DumpDebug(m string) {
 }
 
 // Filter filters out log items based on given filter.
-func (l LogItems) Filter(q string) ([]int, error) {
+func (l LogItems) Filter(q string) ([]int, [][]int, error) {
 	if q == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if IsFuzzySelector(q) {
-		return l.fuzzyFilter(strings.TrimSpace(q[2:])), nil
+		mm, ii := l.fuzzyFilter(strings.TrimSpace(q[2:]))
+		return mm, ii, nil
 	}
-	indexes, err := l.filterLogs(q)
+	matches, indices, err := l.filterLogs(q)
 	if err != nil {
 		log.Error().Err(err).Msgf("Logs filter failed")
-		return nil, err
+		return nil, nil, err
 	}
-	return indexes, nil
+	return matches, indices, nil
 }
 
 var fuzzyRx = regexp.MustCompile(`\A\-f`)
 
-func (l LogItems) fuzzyFilter(q string) []int {
+func (l LogItems) fuzzyFilter(q string) ([]int, [][]int) {
 	q = strings.TrimSpace(q)
-	matches := make([]int, 0, len(l))
+	matches, indices := make([]int, 0, len(l)), make([][]int, 0, 10)
 	mm := fuzzy.Find(q, l.Lines())
 	for _, m := range mm {
 		matches = append(matches, m.Index)
+		indices = append(indices, m.MatchedIndexes)
 	}
 
-	return matches
+	return matches, indices
 }
 
-func (l LogItems) filterLogs(q string) ([]int, error) {
+func (l LogItems) filterLogs(q string) ([]int, [][]int, error) {
 	rx, err := regexp.Compile(`(?i)` + q)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	matches := make([]int, 0, len(l))
+	matches, indices := make([]int, 0, len(l)), make([][]int, 0, 10)
 	for i, line := range l.Lines() {
-		if rx.MatchString(line) {
+		if locs := rx.FindStringIndex(line); locs != nil {
 			matches = append(matches, i)
+			ii := make([]int, 0, 10)
+			for i := 0; i < len(locs); i += 2 {
+				for j := locs[i]; j < locs[i+1]; j++ {
+					ii = append(ii, j)
+				}
+			}
+			indices = append(indices, ii)
 		}
 	}
 
-	return matches, nil
+	return matches, indices, nil
 }

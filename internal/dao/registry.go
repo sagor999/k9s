@@ -51,6 +51,7 @@ func AccessorFor(f Factory, gvr client.GVR) (Accessor, error) {
 		client.NewGVR("popeye"):                        &Popeye{},
 		client.NewGVR("sanitizer"):                     &Popeye{},
 		client.NewGVR("helm"):                          &Helm{},
+		client.NewGVR("dir"):                           &Dir{},
 	}
 
 	r, ok := m[gvr]
@@ -152,10 +153,23 @@ func loadK9s(m ResourceMetas) {
 		ShortNames:   []string{"hz", "pu"},
 		Categories:   []string{"k9s"},
 	}
+	m[client.NewGVR("dir")] = metav1.APIResource{
+		Name:         "dir",
+		Kind:         "Dir",
+		SingularName: "dir",
+		Categories:   []string{"k9s"},
+	}
 	m[client.NewGVR("xrays")] = metav1.APIResource{
 		Name:         "xray",
 		Kind:         "XRays",
 		SingularName: "xray",
+		Categories:   []string{"k9s"},
+	}
+	m[client.NewGVR("references")] = metav1.APIResource{
+		Name:         "references",
+		Kind:         "References",
+		SingularName: "reference",
+		Verbs:        []string{},
 		Categories:   []string{"k9s"},
 	}
 	m[client.NewGVR("aliases")] = metav1.APIResource{
@@ -169,6 +183,7 @@ func loadK9s(m ResourceMetas) {
 		Name:         "popeye",
 		Kind:         "Popeye",
 		SingularName: "popeye",
+		Namespaced:   true,
 		Verbs:        []string{},
 		Categories:   []string{"k9s"},
 	}
@@ -267,7 +282,16 @@ func loadRBAC(m ResourceMetas) {
 }
 
 func loadPreferred(f Factory, m ResourceMetas) error {
-	rr, err := f.Client().CachedDiscoveryOrDie().ServerPreferredResources()
+	if !f.Client().ConnectionOK() {
+		log.Error().Msgf("PreferredRES - No API server connection")
+		return nil
+	}
+
+	dial, err := f.Client().CachedDiscovery()
+	if err != nil {
+		return err
+	}
+	rr, err := dial.ServerPreferredResources()
 	if err != nil {
 		log.Debug().Err(err).Msgf("Failed to load preferred resources")
 	}
@@ -287,7 +311,7 @@ func loadPreferred(f Factory, m ResourceMetas) error {
 
 func loadCRDs(f Factory, m ResourceMetas) {
 	const crdGVR = "apiextensions.k8s.io/v1beta1/customresourcedefinitions"
-	oo, err := f.List(crdGVR, "", true, labels.Everything())
+	oo, err := f.List(crdGVR, client.ClusterScope, false, labels.Everything())
 	if err != nil {
 		log.Warn().Err(err).Msgf("Fail CRDs load")
 		return

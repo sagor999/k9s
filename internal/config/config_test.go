@@ -261,13 +261,14 @@ func TestSetup(t *testing.T) {
 
 var expectedConfig = `k9s:
   refreshRate: 100
+  enableMouse: false
   headless: false
   readOnly: true
   noIcons: false
   logger:
     tail: 500
     buffer: 800
-    sinceSeconds: -1
+    sinceSeconds: 60
     fullScreenLogs: false
     textWrap: false
     showTime: false
@@ -289,6 +290,7 @@ var expectedConfig = `k9s:
         limits:
           cpu: 100m
           memory: 100Mi
+      portForwardAddress: localhost
     fred:
       namespace:
         active: default
@@ -308,6 +310,7 @@ var expectedConfig = `k9s:
         limits:
           cpu: 100m
           memory: 100Mi
+      portForwardAddress: localhost
     minikube:
       namespace:
         active: kube-system
@@ -327,6 +330,7 @@ var expectedConfig = `k9s:
         limits:
           cpu: 100m
           memory: 100Mi
+      portForwardAddress: localhost
   thresholds:
     cpu:
       critical: 90
@@ -338,13 +342,14 @@ var expectedConfig = `k9s:
 
 var resetConfig = `k9s:
   refreshRate: 2
+  enableMouse: false
   headless: false
   readOnly: false
   noIcons: false
   logger:
     tail: 200
     buffer: 2000
-    sinceSeconds: -1
+    sinceSeconds: 60
     fullScreenLogs: false
     textWrap: false
     showTime: false
@@ -366,6 +371,7 @@ var resetConfig = `k9s:
         limits:
           cpu: 100m
           memory: 100Mi
+      portForwardAddress: localhost
   thresholds:
     cpu:
       critical: 90
